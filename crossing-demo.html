@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Rail Crossing Monitor - Sample</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0B0F14;
+    --card-bg: #141A22;
+    --card-border: #2A3441;
+    --text-primary: #F2F5F8;
+    --text-muted: #9AA6B4;
+    --red: #FF4B50;
+    --red-glow: rgba(255, 75, 80, 0.55);
+    --green: #35D68C;
+    --amber: #FFB020;
+    --amber-glow: rgba(255, 176, 32, 0.5);
+    --gray: #A3AEBB;
+    --grey-lamp: #3A4451;
+  }
+
+  /* One root size drives every rem in this file. On a TV or monitor the script at the bottom
+     picks the largest size at which every tile still fits on screen with no scrolling, so the
+     text is as big as the screen allows. This clamp is only the starting guess (and the
+     fallback if scripts are blocked). Phones use the fixed size in the media query below. */
+  html { font-size: clamp(13px, min(2.3vw, 2.1vh), 60px); }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text-primary);
+    font-family: 'Inter', sans-serif;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .topbar { position: sticky; top: 0; z-index: 10; background: var(--bg); flex-shrink: 0; }
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 1.25rem;
+    border-bottom: 1px solid var(--card-border);
+  }
+
+  h1 {
+    font-family: 'Oswald', sans-serif;
+    font-weight: 600;
+    font-size: 1.7rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin: 0;
+  }
+  h1 span { color: var(--text-muted); font-weight: 500; }
+
+  .conn-status {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 500;
+    font-size: 1.05rem;
+    letter-spacing: 0.03em;
+  }
+  .conn-dot { width: 1rem; height: 1rem; border-radius: 50%; background: var(--grey-lamp); transition: background 0.3s; }
+  .conn-status.live .conn-dot { background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .conn-status.reconnecting .conn-dot { background: var(--amber); box-shadow: 0 0 8px var(--amber); animation: pulse 1s ease-in-out infinite; }
+  .conn-status.down .conn-dot { background: var(--red); box-shadow: 0 0 8px var(--red); }
+
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+  /* Shown whenever the display can't vouch for what it's showing. */
+  .unverified-banner {
+    display: none;
+    padding: 0.6rem 1.25rem;
+    background: #2A1315;
+    border-bottom: 3px solid var(--red);
+    color: #FFE3E5;
+    font-family: 'Oswald', sans-serif;
+    font-size: 1.6rem;
+    letter-spacing: 0.03em;
+  }
+  .unverified-banner.show { display: block; }
+  .unverified-banner small {
+    display: block;
+    font-family: 'Inter', sans-serif;
+    font-size: 1.05rem;
+    letter-spacing: 0;
+    margin-top: 2px;
+    color: #F8CACD;
+  }
+
+  /* Portrait-friendly board: two railroad columns that fill the screen height, so it
+     sits comfortably in half of a split-screen TV. */
+  main { flex: 1; min-height: 0; overflow: auto; padding: 0 1rem; display: flex; flex-direction: column; }
+
+  .board { flex: 1 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 0.9rem; padding-bottom: 0.9rem; }
+  .board.unverified .card { filter: grayscale(1); opacity: 0.45; }
+
+  .lane { display: flex; flex-direction: column; min-width: 0; }
+  .lane-cards { flex: 1; display: grid; grid-template-rows: repeat(var(--rows, 4), minmax(4rem, 1fr)); gap: 0.45rem; padding-top: 0.5rem; }
+  /* The railroad name stays pinned while the cards scroll underneath it. */
+  .lane h2 {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background: var(--bg);
+    margin: 0;
+    padding: 0.35rem 0 0.25rem;
+    border-bottom: 3px solid var(--card-border);
+    font-family: 'Oswald', sans-serif;
+    font-weight: 600;
+    font-size: 1.6rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #C3CCD6;
+  }
+
+  .card {
+    background: var(--card-bg);
+    border: 2px solid var(--card-border);
+    border-radius: 8px;
+    padding: 0.7rem 1.25rem 0.55rem;   /* clears the thick flashing border (0.55rem) with room to spare */
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    position: relative;
+    overflow: hidden;
+  }
+  /* Green and grey tiles get a calm, thin border so the thick flashing red and amber ones stand out:
+     green 0.2rem solid, grey 0.275rem dashed. Drawn on an overlay too, so every tile has identical inner spacing. */
+  .card.clear::after, .card.gray::after {
+    content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+    border: 0.2rem solid var(--green);
+  }
+  .card.gray::after { border-width: 0.275rem; border-style: dashed; border-color: #5B6675; }
+
+  /* Red and amber tiles get a thick border that flashes. The border is drawn on an overlay so
+     the tile never changes size when its state changes. Red flashes faster than amber.
+     Both stay under 3 flashes a second. */
+  .card.blocked::after, .card.predicted::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    border: 0.55rem solid var(--red);
+    pointer-events: none;
+  }
+  .card.blocked::after   { border-color: var(--red);   box-shadow: inset 0 0 1.5rem var(--red-glow);   animation: border-flash-red 0.9s ease-in-out infinite; }
+  .card.predicted::after { border-color: var(--amber); box-shadow: inset 0 0 1.5rem var(--amber-glow); animation: border-flash-amber 1.4s ease-in-out infinite; }
+  @keyframes border-flash-red   { 0%, 100% { opacity: 1; } 50% { opacity: 0.12; } }
+  @keyframes border-flash-amber { 0%, 100% { opacity: 1; } 50% { opacity: 0.15; } }
+  /* A tile the screen can't vouch for does not flash. */
+  .board.unverified .card::after { animation: none; opacity: 0.6; }
+
+  .card-top { display: flex; justify-content: space-between; align-items: baseline; gap: 0.75rem; }   /* the name stays at the top of every tile; .card-foot's auto margin pins the footer to the bottom */
+  .street { font-family: 'Oswald', sans-serif; font-weight: 600; font-size: 2.5rem; line-height: 1; letter-spacing: 0.01em; margin: 0; }
+  .demo-badge {
+    display: inline-block; margin-left: 0.7rem; padding: 0.1rem 0.5rem;
+    font-family: 'JetBrains Mono', monospace; font-weight: 500; font-size: 1rem; line-height: 1.2; letter-spacing: 0.08em;
+    color: #0B0F14; background: var(--amber); border-radius: 4px;
+    vertical-align: middle; position: relative; top: -0.2rem;
+  }
+
+  .status-row { display: flex; align-items: center; gap: 0.7rem; margin-top: 0.1rem; }
+
+  /* Green and grey tiles have no direction arrow, so their status row is shorter and sits tight under the
+     name. Add the gap the arrow gives red and amber tiles. */
+  .card.clear .status-row, .card.gray .status-row { margin-top: 0.6rem; }
+  /* Clear tiles have room to spare: centre the dots and status halfway between the name and the bottom line. */
+  .card.clear .card-top { padding-bottom: 0.3rem; }
+  .card.clear .status-row { margin-top: auto; margin-bottom: auto; }
+  .card.clear .card-foot { margin-top: 0; }
+
+  /* Twin-lamp crossing signal (stacked, so it takes little width) */
+  .lamps { display: flex; flex-direction: column; gap: 0.3rem; flex-shrink: 0; }
+  .lamp { width: 1.25rem; height: 1.25rem; border-radius: 50%; background: var(--grey-lamp); }
+
+  .card.clear .lamp { background: var(--green); }
+  .card.predicted .lamp { background: var(--amber); animation: pulse-slow 2s ease-in-out infinite; }
+  .card.gray .lamp { background: var(--grey-lamp); }
+
+  /* Train moving through = alternating flash. Stopped / other blocked = solid red. */
+  .card.blocked.flashing .lamp-a { background: var(--red); animation: flash-a 1s steps(1) infinite; }
+  .card.blocked.flashing .lamp-b { background: var(--grey-lamp); animation: flash-b 1s steps(1) infinite; }
+  .card.blocked:not(.flashing) .lamp { background: var(--red); box-shadow: 0 0 8px var(--red); }
+
+  @keyframes pulse-slow { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  @keyframes flash-a { 0%, 49% { background: var(--red); box-shadow: 0 0 8px var(--red); } 50%, 100% { background: var(--grey-lamp); box-shadow: none; } }
+  @keyframes flash-b { 0%, 49% { background: var(--grey-lamp); box-shadow: none; } 50%, 100% { background: var(--red); box-shadow: 0 0 8px var(--red); } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .card.blocked::after, .card.predicted::after { animation: none; opacity: 1; }
+    .card.blocked.flashing .lamp-a, .card.blocked.flashing .lamp-b { animation: none; background: var(--red); box-shadow: 0 0 8px var(--red); }
+    .card.predicted .lamp { animation: none; opacity: 1; }
+    .conn-status.reconnecting .conn-dot { animation: none; }
+  }
+
+  .status-text {
+    font-family: 'Oswald', sans-serif;
+    font-weight: 700;
+    font-size: 2.1rem;
+    line-height: 1.05;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    flex: 1;
+    min-width: 0;
+  }
+  .card.clear .status-text { color: var(--green); }
+  .card.blocked .status-text { color: var(--red); }
+  .card.predicted .status-text { color: var(--amber); }
+  .card.gray .status-text { color: var(--gray); }
+
+  /* Direction arrow (rotation comes from the Function) / nondirectional ring */
+  .dir-wrap { display: flex; flex-direction: column; align-items: center; gap: 0.1rem; flex-shrink: 0; width: 4rem; text-align: center; }
+  .dir { width: 3.8rem; height: 3.8rem; margin: -0.3rem 0; overflow: visible; }   /* the drawing has blank margin; trim it so the arrow can stay big */
+  .dir-text { font-family: 'JetBrains Mono', monospace; font-weight: 500; font-size: 0.85rem; line-height: 1; letter-spacing: 0.02em; color: var(--text-muted); }
+  .card.blocked .dir { color: var(--red); }
+  .card.predicted .dir { color: var(--amber); }
+
+  .detail { margin-top: 0.1rem; font-family: 'Oswald', sans-serif; font-weight: 500; font-size: 1.5rem; line-height: 1.1; letter-spacing: 0.03em; text-transform: uppercase; color: var(--text-primary); }
+  .arrival { margin-top: 0.2rem; font-size: 1.4rem; font-weight: 600; line-height: 1.1; color: var(--text-primary); }
+  .arrival .label, .detail .label { font-size: 0.9rem; font-weight: 500; letter-spacing: 0.08em; color: var(--text-muted); margin-right: 0.4rem; }
+  .warning { margin-top: 0.25rem; font-size: 1.05rem; line-height: 1.25; color: #D6DCE3; }
+
+  .card-foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0 0.75rem; margin-top: auto; padding-top: 0.2rem; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; line-height: 1.2; color: var(--text-muted); }
+
+  /* Narrow screens (phones, small windows): stack the two railroads in one column and let
+     the page scroll normally. Text is scaled to the phone's width. */
+  @media (max-width: 700px) {
+    html { font-size: clamp(10px, 3.2vw, 14px); }
+    body { height: auto; min-height: 100vh; display: block; }
+    main { overflow: visible; display: block; padding: 0 12px; }
+    .board { display: flex; flex-direction: column; gap: 1rem; padding-bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px)); }
+    .lane h2 { top: var(--topbar-h, 0px); padding-top: 0.5rem; }
+    .lane-cards { display: flex; flex-direction: column; gap: 0.6rem; }
+    .card { min-height: 6.5rem; }
+    header { padding: 8px 12px; }
+    h1 { font-size: 1.5rem; }
+    .unverified-banner { padding: 8px 12px; font-size: 1.3rem; }
+  }
+
+  /* Demo mode (?demo=1): impossible to mistake for the real display. */
+  .demo-strip { display: none; padding: 0.3rem 1.25rem; background: var(--amber); color: #0B0F14; font-family: 'JetBrains Mono', monospace; font-weight: 500; font-size: 1.05rem; letter-spacing: 0.06em; text-align: center; }
+  body.demo .demo-strip { display: block; }
+
+  .empty-state { color: var(--text-muted); font-family: 'JetBrains Mono', monospace; font-size: 1.2rem; padding: 2.5rem 0; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+<header>
+  <h1>Crossing Status <span id="crossing-count"></span></h1>
+  <div class="conn-status" id="conn-status">
+    <div class="conn-dot"></div>
+    <span id="conn-label">CONNECTING</span>
+  </div>
+</header>
+
+<div class="demo-strip" id="demo-strip"></div>
+
+<div class="unverified-banner" id="banner" role="alert">
+  FEED INTERRUPTED — CROSSING STATUS UNVERIFIED
+  <small>Do not rely on this information for emergency routing.</small>
+</div>
+</div>
+
+<main>
+  <div class="board" id="grid">
+    <div class="empty-state" id="empty-state">Waiting for connection…</div>
+  </div>
+</main>
+
+<script>
+  // ---- Configuration ----
+  // This is a self-contained sample: it makes no network calls and shows simulated data only.
+  const HEARTBEAT_TIMEOUT_MS = 20000;
+
+  // Sample mode: the page cycles through two simulated crossing scenes on a timer.
+  //   ?seconds=20   seconds per scene (default 15)
+  //   ?scene=2      hold one scene (1-based)
+  //   keys: Right/Left = next/previous scene, Space = pause/resume
+  const DEMO_PARAMS = new URLSearchParams(location.search);
+  const DEMO = true;
+
+  const crossings = new Map(); // code -> display object computed by the Function
+  let connState = 'reconnecting';
+  let lastHeartbeatAt = 0;
+
+  const grid = document.getElementById('grid');
+  const emptyState = document.getElementById('empty-state');
+  const connStatusEl = document.getElementById('conn-status');
+  const connLabelEl = document.getElementById('conn-label');
+  const countEl = document.getElementById('crossing-count');
+  const bannerEl = document.getElementById('banner');
+
+  function esc(value) {
+    return String(value ?? '').replace(/[&<>"']/g, ch => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
+    ));
+  }
+
+  // Timestamps are shown in Pacific time (daylight saving handled automatically), whatever the
+  // visitor's own time zone is. The zone name (PST/PDT) is shown so it is never ambiguous.
+  const DISPLAY_TIME_ZONE = 'America/Los_Angeles';
+  function localTime(iso, withSeconds) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d)) return '';
+    return d.toLocaleTimeString('en-US', Object.assign(
+      { timeZone: DISPLAY_TIME_ZONE, timeZoneName: 'short' },
+      withSeconds
+        ? { hour: 'numeric', minute: '2-digit', second: '2-digit' }
+        : { hour: 'numeric', minute: '2-digit' }));
+  }
+
+  // The top bar grows when the "feed interrupted" banner appears. On phones the railroad
+  // headers stick directly beneath it, so keep its height available to the stylesheet.
+  const topbarEl = document.querySelector('.topbar');
+  function syncTopbarHeight() {
+    document.documentElement.style.setProperty('--topbar-h', topbarEl.offsetHeight + 'px');
+  }
+  if (window.ResizeObserver) new ResizeObserver(syncTopbarHeight).observe(topbarEl);
+  window.addEventListener('resize', syncTopbarHeight);
+  syncTopbarHeight();
+
+  // ---- Verification state: can this screen vouch for what it shows? ----
+  function isVerified() {
+    return connState === 'live' && (Date.now() - lastHeartbeatAt) < HEARTBEAT_TIMEOUT_MS;
+  }
+
+  function updateVerification() {
+    const verified = isVerified();
+    bannerEl.classList.toggle('show', !verified);
+    grid.classList.toggle('unverified', !verified);
+    scheduleFit();   // the banner takes room, so re-check that every tile still fits
+
+    connStatusEl.className = 'conn-status ' + (verified ? 'live' : connState === 'reconnecting' ? 'reconnecting' : 'down');
+    connLabelEl.textContent = verified ? 'LIVE'
+      : connState === 'reconnecting' ? 'RECONNECTING'
+      : connState === 'live' ? 'NO DATA FEED'
+      : 'DISCONNECTED';
+    if (DEMO) connLabelEl.textContent = 'DEMO';
+  }
+
+  // ---- Rendering: this page only draws what the Function already decided ----
+  function arrowSvg(rotation) {
+    if (rotation === null || rotation === undefined) {
+      // Direction unknown: nondirectional symbol (ring), never a guessed arrow.
+      return '<svg class="dir" viewBox="0 0 24 24" role="img" aria-label="direction unknown">' +
+        '<circle cx="12" cy="12" r="6" fill="none" stroke="currentColor" stroke-width="2"/>' +
+        '<circle cx="12" cy="12" r="1.8" fill="currentColor"/></svg>';
+    }
+    const deg = Number(rotation) || 0;
+    return `<svg class="dir" viewBox="0 0 24 24" role="img" aria-label="train direction" style="transform: rotate(${deg}deg)">` +
+      '<path d="M12 2.5 L19.5 13 H14.5 V21.5 H9.5 V13 H4.5 Z" fill="currentColor"/></svg>';
+  }
+
+  // ---- Layout: where each crossing appears and what it is called on screen ----
+  // All railways, streets and crossing codes in this sample are fictional.
+  const LANES = [
+    { key: 'CR', label: 'Cascade Rail' },
+    { key: 'RL', label: 'Redwood Line' }
+  ];
+  const LAYOUT = [
+    { code: 'X00101A', lane: 'CR', name: 'Harbor Blvd / Hwy 9' },
+    { code: 'X00102B', lane: 'CR', name: 'Cedar Ave' },
+    { code: 'X00103C', lane: 'CR', name: 'Alder Ave' },
+    { code: 'X00104D', lane: 'CR', name: 'Birch Ave' },
+    { code: 'X00105E', lane: 'CR', name: 'Willow Ave' },
+    { code: 'X00201F', lane: 'RL', name: 'Mill St' },
+    { code: 'X00202G', lane: 'RL', name: 'Orchard Ave / Hwy 12' }
+  ];
+  const UNVERIFIED_WARNING = 'Crossing status unverified. Do not rely on this information for emergency routing.';
+
+  function placeholderFor(entry) {
+    return {
+      code: entry.code, street: entry.name,
+      displayStatus: 'STATUS_UNKNOWN', displayLabel: 'STATUS UNKNOWN', displayColor: 'GRAY',
+      displayRotation: null, displayWarning: UNVERIFIED_WARNING
+    };
+  }
+
+  function etaText(iso) {
+    const t = Date.parse(iso);
+    if (Number.isNaN(t)) return 'UNKNOWN';
+    const mins = Math.ceil((t - Date.now()) / 60000);
+    if (mins <= 0) return 'NOW';
+    const h = Math.floor(mins / 60), m = mins % 60;
+    return h > 0 ? `${h} HR${m ? ` ${m} MIN` : ''}` : `${m} MIN`;
+  }
+  function refreshEtas() {
+    document.querySelectorAll('.eta').forEach(el => { el.textContent = etaText(el.dataset.t); });
+  }
+
+  function cardFor(c, name) {
+    const state = { RED: 'blocked', AMBER: 'predicted', GREEN: 'clear', GRAY: 'gray' }[c.displayColor] || 'gray';
+    const flashing = c.displayStatus === 'BLOCKED' && /MOVING/.test(c.displayLabel || '');
+
+    const showArrow = c.displayStatus === 'BLOCKED' || c.displayStatus === 'TRAIN_EXPECTED';
+    // Short caption under the arrow (NORTHBOUND -> NORTH). With no known direction, the ring is captioned UNKNOWN.
+    const known = c.displayRotation !== null && c.displayRotation !== undefined;
+    const dirCaption = known ? String(c.displayDirection || '').replace(/BOUND$/i, '') : 'UNKNOWN';
+    const arrowHtml = showArrow
+      ? `<div class="dir-wrap">${arrowSvg(c.displayRotation)}<div class="dir-text">${esc(dirCaption)}</div></div>`
+      : '';
+
+    const detailHtml = c.displayDetail ? `<div class="detail">${esc(c.displayDetail)}</div>` : '';
+
+    // Same look as "EST. CLEAR: 8 MIN": minutes until the predicted arrival. The number is kept
+    // current by refreshEtas() without redrawing the tile.
+    const arrivalHtml = (c.displayStatus === 'TRAIN_EXPECTED' && c.predictedStartUtc)
+      ? `<div class="detail">EST. ARRIVAL: <span class="eta" data-t="${esc(c.predictedStartUtc)}">${esc(etaText(c.predictedStartUtc))}</span></div>`
+      : '';
+
+    const warningHtml = c.displayWarning ? `<div class="warning">${esc(c.displayWarning)}</div>` : '';
+    const updated = localTime(c.timeUpdatedUtc, true);
+
+    const card = document.createElement('div');
+    card.className = `card ${state}${flashing ? ' flashing' : ''}`;
+    card.innerHTML = `
+      <div class="card-top">
+        <div class="street">${esc(name || c.street || 'Unknown location')}${c.isDemo ? '<span class="demo-badge">DEMO</span>' : ''}</div>
+      </div>
+      <div class="status-row">
+        <div class="lamps"><div class="lamp lamp-a"></div><div class="lamp lamp-b"></div></div>
+        <div class="status-text">${esc(c.displayLabel)}</div>
+        ${arrowHtml}
+      </div>
+      ${detailHtml}
+      ${arrivalHtml}
+      ${warningHtml}
+      <div class="card-foot">
+        <span>${esc(c.code)}</span>
+        ${updated ? `<span>Last updated: ${esc(updated)}</span>` : ''}
+      </div>
+    `;
+    return card;
+  }
+
+  function render() {
+    buildBoard(crossings);
+    scheduleFit();
+  }
+
+  // Draws the board from a map of code -> display object. The real data is drawn by render();
+  // fitText() also draws worst-case sample data to measure how much room the tiles need.
+  function buildBoard(src) {
+    if (src.size === 0) {
+      emptyState.style.display = 'block';
+      return;
+    }
+    emptyState.style.display = 'none';
+    countEl.textContent = `(${src.size})`;
+
+    const byLane = new Map(LANES.map(l => [l.key, []]));
+    for (const entry of LAYOUT) {
+      byLane.get(entry.lane).push(cardFor(src.get(entry.code) || placeholderFor(entry), entry.name));
+    }
+
+    const listed = new Set(LAYOUT.map(e => e.code));
+    const extras = [...src.values()]
+      .filter(c => !listed.has(c.code))
+      .sort((a, b) => (a.street || '').localeCompare(b.street || ''));
+    for (const c of extras) {
+      let target = LANES[0].key, fewest = Infinity;
+      for (const [key, cards] of byLane) {
+        if (cards.length < fewest) { fewest = cards.length; target = key; }
+      }
+      byLane.get(target).push(cardFor(c, c.street));
+    }
+
+    grid.innerHTML = '';
+    grid.style.setProperty('--rows', Math.max(1, ...[...byLane.values()].map(cards => cards.length)));
+    for (const lane of LANES) {
+      const col = document.createElement('section');
+      col.className = 'lane';
+      const title = document.createElement('h2');
+      title.textContent = lane.label;
+      col.appendChild(title);
+      const cards = document.createElement('div');
+      cards.className = 'lane-cards';
+      for (const card of byLane.get(lane.key)) cards.appendChild(card);
+      col.appendChild(cards);
+      grid.appendChild(col);
+    }
+  }
+
+  // ---- Auto-size: make the text as large as the screen allows ----
+  // On a TV or monitor nothing should need scrolling, so find the largest root font size at
+  // which every tile still fits, measured with the longest labels the display can show (a
+  // stopped train with a long estimate, and an unverified tile with its warning). The sample
+  // data is drawn and measured in one step, then the real board is drawn straight back, so
+  // nothing flickers and the size does not jump when a crossing changes state.
+  // Phones use the fixed size in the stylesheet and scroll normally.
+  const mainEl = document.querySelector('main');
+  const FIT_MIN_PX = 9, FIT_MAX_PX = 72;
+  let fitTimer = null;
+
+  function worstCaseMaps() {
+    const nowIso = new Date().toISOString();
+    const codes = new Set([...LAYOUT.map(e => e.code), ...crossings.keys()]);
+    const blocked = new Map(), gray = new Map();
+    for (const code of codes) {
+      const street = (crossings.get(code) || {}).street || code;
+      blocked.set(code, {
+        code, street, displayStatus: 'BLOCKED', displayLabel: 'BLOCKED - STOPPED / SWITCHING', displayColor: 'RED',
+        displayRotation: 40, displayDirection: 'NORTHBOUND', displayDetail: 'EST. CLEAR: 1 HR 44 MIN', timeUpdatedUtc: nowIso, isDemo: DEMO
+      });
+      gray.set(code, {
+        code, street, displayStatus: 'SENSOR_STATUS_UNKNOWN', displayLabel: 'SENSOR STATUS UNKNOWN', displayColor: 'GRAY',
+        displayRotation: null, displayWarning: UNVERIFIED_WARNING, timeUpdatedUtc: nowIso, isDemo: DEMO
+      });
+    }
+    return [blocked, gray];
+  }
+
+  function fitText() {
+    fitTimer = null;
+    const rootEl = document.documentElement;
+    if (window.matchMedia('(max-width: 700px)').matches) { rootEl.style.fontSize = ''; return; }
+    if (crossings.size === 0) return;
+
+    const samples = worstCaseMaps();
+    const fits = px => {
+      rootEl.style.fontSize = px + 'px';
+      return samples.every(s => {
+        buildBoard(s);
+        return mainEl.scrollHeight <= mainEl.clientHeight && mainEl.scrollWidth <= mainEl.clientWidth;
+      });
+    };
+
+    let best = FIT_MIN_PX;               // if even this does not fit, the page scrolls as a last resort
+    if (fits(FIT_MIN_PX)) {
+      let lo = FIT_MIN_PX, hi = FIT_MAX_PX;
+      while (hi - lo > 0.5) {
+        const mid = (lo + hi) / 2;
+        if (fits(mid)) lo = mid; else hi = mid;
+      }
+      best = lo;
+    }
+    rootEl.style.fontSize = best + 'px';
+    buildBoard(crossings);
+  }
+
+  function scheduleFit() {
+    // Refit only when the tile layout could have changed, not on every status update.
+    const key = [window.innerWidth, window.innerHeight, crossings.size, bannerEl.classList.contains('show')].join('|');
+    if (key === scheduleFit.lastKey) return;
+    scheduleFit.lastKey = key;
+    clearTimeout(fitTimer);
+    fitTimer = setTimeout(fitText, 120);
+  }
+
+  window.addEventListener('resize', () => { scheduleFit.lastKey = null; scheduleFit(); });
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { scheduleFit.lastKey = null; scheduleFit(); });
+  // Web fonts change text widths when they arrive, so measure again once they have loaded.
+  if (document.fonts && document.fonts.addEventListener) document.fonts.addEventListener('loadingdone', () => { scheduleFit.lastKey = null; scheduleFit(); });
+
+  function upsertCrossing(display) {
+    crossings.set(display.code, display);
+    render();
+  }
+
+
+  // ---- Sample scenes ----
+  const DEMO_SCENES = (() => {
+    const T = UNVERIFIED_WARNING;
+    // [code, label, color, status, extras]
+    const R = (code, label, extra) => [code, label, 'RED', 'BLOCKED', extra];
+    const G = code => [code, 'CLEAR', 'GREEN', 'CLEAR', {}];
+    const GRAY = (code, label, status) => [code, label, 'GRAY', status, { displayWarning: T }];
+    const N = { displayRotation: 40, displayDirection: 'NORTHBOUND' };
+    const S = { displayRotation: 220, displayDirection: 'SOUTHBOUND' };
+    return [
+      { name: 'Everyday states: moving, stopped, no direction, train expected, sensor offline, data stale', rows: [
+        R('X00101A', 'BLOCKED - TRAIN MOVING', { ...N, displayDetail: 'EST. CLEAR: 8 MIN' }),
+        R('X00102B', 'BLOCKED - STOPPED / SWITCHING', { ...S, displayDetail: 'CLEAR TIME UPDATING' }),
+        R('X00103C', 'BLOCKED - TRAIN MOVING', { displayDetail: 'CLEAR TIME UPDATING' }),
+        ['X00104D', 'TRAIN EXPECTED', 'AMBER', 'TRAIN_EXPECTED', { ...N, predictedInMinutes: 10 }],
+        GRAY('X00105E', 'SENSOR OFFLINE', 'SENSOR_OFFLINE'),
+        GRAY('X00201F', 'DATA STALE', 'DATA_STALE'),
+        G('X00202G') ] },
+      { name: 'Plain blocked, sensor status unknown, status unknown', rows: [
+        R('X00101A', 'CROSSING BLOCKED', { displayDetail: 'CLEAR TIME UPDATING' }),
+        GRAY('X00102B', 'SENSOR STATUS UNKNOWN', 'SENSOR_STATUS_UNKNOWN'),
+        GRAY('X00103C', 'STATUS UNKNOWN', 'STATUS_UNKNOWN'),
+        G('X00104D'), G('X00105E'), G('X00201F'), G('X00202G') ] }
+    ];
+  })();
+
+  function demoApply(sceneIndex) {
+    const scene = DEMO_SCENES[sceneIndex];
+    const now = Date.now();
+    crossings.clear();
+    for (const [code, label, color, status, extra] of scene.rows) {
+      const entry = LAYOUT.find(e => e.code === code);
+      const d = {
+        code, street: entry ? entry.name : code,
+        displayStatus: status, displayLabel: label, displayColor: color,
+        displayRotation: null, timeUpdatedUtc: new Date(now).toISOString(), isDemo: true, ...extra
+      };
+      if (extra.predictedInMinutes) d.predictedStartUtc = new Date(now + extra.predictedInMinutes * 60000).toISOString();
+      crossings.set(code, d);
+    }
+    document.getElementById('demo-strip').textContent =
+      `SAMPLE PROJECT - SIMULATED DATA, NOT REAL CROSSING STATUS - SCENE ${sceneIndex + 1} OF ${DEMO_SCENES.length}`;
+    render();
+  }
+
+  function startDemo() {
+    document.body.classList.add('demo');
+    const seconds = Math.max(3, Number(DEMO_PARAMS.get('seconds')) || 15);
+    const held = Number(DEMO_PARAMS.get('scene'));
+    let index = held >= 1 && held <= DEMO_SCENES.length ? held - 1 : 0;
+    let paused = held >= 1;
+    connState = 'live';
+    const beat = () => { lastHeartbeatAt = Date.now(); updateVerification(); connLabelEl.textContent = 'DEMO'; };
+    beat(); setInterval(beat, 1000);
+    demoApply(index);
+    const go = delta => { index = (index + delta + DEMO_SCENES.length) % DEMO_SCENES.length; demoApply(index); };
+    setInterval(() => { if (!paused) go(1); }, seconds * 1000);
+    window.addEventListener('keydown', e => {
+      if (e.key === 'ArrowRight') go(1);
+      else if (e.key === 'ArrowLeft') go(-1);
+      else if (e.key === ' ') { paused = !paused; e.preventDefault(); }
+    });
+  }
+
+  startDemo();
+  setInterval(updateVerification, 2000);
+  setInterval(refreshEtas, 10000);
+  setInterval(() => { scheduleFit.lastKey = null; scheduleFit(); }, 5 * 60 * 1000);   // cheap safety re-measure
+</script>
+
+</body>
+</html>
