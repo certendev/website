@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>certen.dev | Microsoft 365, Power Platform & Azure Consulting</title>
+  <title>Certen | Microsoft 365, Power Platform & Azure Consulting</title>
   <meta name="description"
     content="Senior Microsoft Purview, Power Apps, Power Automate, and Azure Web Apps consulting for public agencies and organizations." />
   <link rel="icon"
@@ -36,6 +36,7 @@
 
     html {
       scroll-behavior: smooth;
+      scroll-padding-top: 70px;   /* nav links land just below the sticky header */
     }
 
     body {
@@ -58,9 +59,18 @@
 
     /* Header / Nav */
     header {
+      position: sticky;
+      top: 0;
+      z-index: 50;
       background: var(--bg);
       color: #fff;
       padding: 20px 0;
+      transition: box-shadow 0.2s ease, padding 0.2s ease;
+    }
+
+    header.scrolled {
+      padding: 12px 0;
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
     }
 
     .nav-bar {
@@ -801,7 +811,7 @@
         I help fire districts, public agencies, and small organizations replace paper workflows,
         build real-time operational tools, and govern sensitive records—using the Microsoft licenses you already own.
       </p>
-      <a href="#contact" class="btn-primary js-email-link">Start a Conversation</a>
+      <a href="#contact" class="btn-primary">Start a Conversation</a>
     </div>
   </section>
 
@@ -992,7 +1002,7 @@
         -->
         <div class="contact-item">
           <strong>Location</strong>
-          <span>Santa Barbara, CA • Remote &amp; On-site</span>
+          <span>Santa Barbara, CA • Remote &amp; on-site</span>
         </div>
       </div>
     </div>
@@ -1000,7 +1010,7 @@
 
   <footer>
     <div class="container">
-      © 2026 <span class="owner-name" data-nosnippet></span> · certen.dev
+      © 2026 certen.dev
     </div>
   </footer>
 
@@ -1019,6 +1029,14 @@
   </div>
 
   <script>
+    // ---- Header: add a shadow once the page is scrolled ----
+    (function () {
+      var header = document.querySelector("header");
+      function update() { header.classList.toggle("scrolled", window.scrollY > 10); }
+      window.addEventListener("scroll", update, { passive: true });
+      update();
+    })();
+
     // ---- Project slider ----
     (function () {
       var carousel = document.getElementById("projects");
